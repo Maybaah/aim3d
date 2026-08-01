@@ -15,6 +15,11 @@ A first person gridshot: the mouse turns a camera, not a cursor. Part of
 - Escape gives the mouse back and ends the run where it stands, because the tape
   is wall time and a paused run has none.
 - A blip marks a kill, a low thud a miss. `M` mutes.
+- `F` fills the screen. The view letterboxes to 16:9 rather than stretching,
+  because the aiming would lie if it stretched, and the canvas is redrawn at the
+  size it is shown at rather than blown up from 960 wide. Go full screen before
+  a run: some browsers drop the pointer lock when the window changes shape, and
+  a released mouse ends the run.
 
 ## Sensitivity
 

@@ -73,7 +73,17 @@
       display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 24px;
       font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary);
     }
-    .hud b { color: var(--text-primary); font-weight: 600; }
+    /* Every number gets a slot wide enough for the longest value it can hold,
+       so a run does not shuffle the row sideways on every tick. */
+    .hud b {
+      display: inline-block; text-align: right;
+      color: var(--text-primary); font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    #h-round { min-width: 5ch; }
+    #h-time, #h-best { min-width: 6ch; }
+    #h-misses { min-width: 3ch; }
+    #h-avg { min-width: 6ch; }
     .hud .spacer { flex: 1; }
 
     .stage { position: relative; margin-top: 16px; }
@@ -86,6 +96,18 @@
       touch-action: none;
     }
     .stage.locked #screen { cursor: none; border-color: var(--border-focus); }
+
+    /* Full screen letterboxes rather than stretches: the view is 16:9 and the
+       aiming would lie if it were not. */
+    .stage:fullscreen {
+      display: flex; align-items: center; justify-content: center;
+      width: 100vw; height: 100vh; margin: 0; background: #000;
+    }
+    .stage:fullscreen #screen {
+      width: min(100vw, calc(100vh * 16 / 9));
+      height: auto; border: 0; border-radius: 0;
+    }
+    .stage:fullscreen #overlay { border-radius: 0; }
 
     #overlay {
       position: absolute; inset: 0; z-index: 5;
@@ -157,6 +179,7 @@
       <span>best <b id="h-best">none</b></span>
       <span class="spacer"></span>
       <button class="btn btn-secondary btn-sm" id="btn-sound" aria-pressed="true" title="Blip on a hit, thud on a miss (M)">♪ sound</button>
+      <button class="btn btn-secondary btn-sm" id="btn-full" aria-pressed="false" title="Fill the screen (F)">⛶ full screen</button>
       <button class="btn btn-primary btn-sm" id="btn-new">New run</button>
     </div>
 
@@ -219,7 +242,9 @@
       it: no cursor, just yaw and pitch, the way a shooter aims. Three spheres
       sit on a wall ten metres out and a new one appears every time you break
       one, thirty to clear. A miss costs a quarter second rather than the run.
-      Escape gives the mouse back and ends the run where it stands.
+      Escape gives the mouse back and ends the run where it stands. F fills the
+      screen, and it is worth doing before you start rather than during a run,
+      since some browsers drop the mouse when the window changes shape.
     </p>
 
     <p style="margin-top: 16px; font-size: 13px; color: var(--text-muted); line-height: 1.7; max-width: 64ch;">

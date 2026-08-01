@@ -186,6 +186,7 @@
   const elBest = document.getElementById("h-best");
   const btnNew = document.getElementById("btn-new");
   const btnSound = document.getElementById("btn-sound");
+  const btnFull = document.getElementById("btn-full");
   const submitWrap = document.getElementById("submit-run");
   const runName = document.getElementById("run-name");
   const runStatus = document.getElementById("run-status");
@@ -197,8 +198,11 @@
   const labValue = document.getElementById("set-value-label");
   const setOut = document.getElementById("set-out");
 
-  const W = cv.width, H = cv.height;
+  /* The backing store follows the element, so full screen is drawn at the size
+     it is shown at rather than a 960 wide picture blown up. */
+  let W = cv.width, H = cv.height;
   const PITCH_LIMIT = 80;
+  const MAX_BACKING = 2560;
 
   let mode = "easy";
   let S = null;
@@ -346,16 +350,53 @@
     return { x: W / 2 + (sx / depth) * focal, y: H / 2 - (sy / depth) * focal, depth };
   }
 
+  function fitCanvas() {
+    const shown = cv.getBoundingClientRect().width;
+    if (!shown) return;
+    const dpr = window.devicePixelRatio || 1;
+    /* never below the size the view was drawn for, or a small window would be
+       a coarser picture than the fixed canvas it replaced */
+    const want = clamp(Math.round(shown * dpr), 960, MAX_BACKING);
+    const wide = want - (want % 2);
+    const tall = Math.round((wide * 9) / 16);
+    if (wide === cv.width && tall === cv.height) return;
+    cv.width = wide;
+    cv.height = tall;
+    W = wide;
+    H = tall;
+  }
+
+  /* In full screen the page's own row of numbers is gone, so the same figures
+     are painted into the corner of the view. */
+  function drawHud() {
+    if (!document.fullscreenElement || !S) return;
+    const scale = W / 960;
+    const pad = Math.round(18 * scale);
+    ctx.font = "500 " + Math.round(15 * scale) + "px 'Geist Mono', monospace";
+    ctx.textAlign = "left";
+    ctx.fillStyle = paint.muted;
+    const clock = S.result ? S.result.score : (S.running ? performance.now() - S.t0 : 0);
+    ctx.fillText(
+      S.st.hits + "/" + AIM3_ROUNDS + "   " + fmt(clock) + "   " + S.st.misses +
+      (S.st.misses === 1 ? " miss" : " misses"),
+      pad, pad + Math.round(12 * scale)
+    );
+  }
+
   function draw() {
+    fitCanvas();
     const b = basis();
     const focal = (W / 2) / Math.tan((cfg.fov * Math.PI / 180) / 2);
+    /* every line and glyph is measured against the 960 wide view it was drawn
+       for, so full screen is the same picture rather than a thinner one */
+    const k = W / 960;
 
     ctx.fillStyle = paint.surface;
     ctx.fillRect(0, 0, W, H);
 
     // the wall the spheres sit on, drawn as its own grid so distance reads
     ctx.strokeStyle = paint.border;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = k;
     const step = 1.5;
     ctx.beginPath();
     for (let x = -AIM3_HALF_W; x <= AIM3_HALF_W + 0.001; x += step) {
@@ -388,32 +429,34 @@
         ctx.arc(e.p.x, e.p.y, rpx, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = paint.accent;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = k;
         ctx.stroke();
       }
     }
 
     // crosshair
     ctx.strokeStyle = paint.accent;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * k;
     ctx.beginPath();
-    ctx.moveTo(W / 2 - 9, H / 2); ctx.lineTo(W / 2 - 3, H / 2);
-    ctx.moveTo(W / 2 + 3, H / 2); ctx.lineTo(W / 2 + 9, H / 2);
-    ctx.moveTo(W / 2, H / 2 - 9); ctx.lineTo(W / 2, H / 2 - 3);
-    ctx.moveTo(W / 2, H / 2 + 3); ctx.lineTo(W / 2, H / 2 + 9);
+    ctx.moveTo(W / 2 - 9 * k, H / 2); ctx.lineTo(W / 2 - 3 * k, H / 2);
+    ctx.moveTo(W / 2 + 3 * k, H / 2); ctx.lineTo(W / 2 + 9 * k, H / 2);
+    ctx.moveTo(W / 2, H / 2 - 9 * k); ctx.lineTo(W / 2, H / 2 - 3 * k);
+    ctx.moveTo(W / 2, H / 2 + 3 * k); ctx.lineTo(W / 2, H / 2 + 9 * k);
     ctx.stroke();
     ctx.fillStyle = paint.accent;
-    ctx.fillRect(W / 2 - 1, H / 2 - 1, 2, 2);
+    ctx.fillRect(W / 2 - k, H / 2 - k, 2 * k, 2 * k);
 
     // a nudge back toward the wall when the view has swung off it
     const centre = project({ x: 0, y: 0, z: -AIM3_DIST }, b, focal);
     if (!centre || centre.x < 0 || centre.x > W || centre.y < 0 || centre.y > H) {
       const side = (0 * b.right.x + 0 * b.right.y + -AIM3_DIST * b.right.z) >= 0 ? 1 : -1;
       ctx.fillStyle = paint.muted;
-      ctx.font = "600 22px 'Geist Mono', monospace";
+      ctx.font = "600 " + Math.round(22 * k) + "px 'Geist Mono', monospace";
       ctx.textAlign = side > 0 ? "right" : "left";
-      ctx.fillText(side > 0 ? "▶" : "◀", side > 0 ? W - 16 : 16, H / 2 + 8);
+      ctx.fillText(side > 0 ? "▶" : "◀", side > 0 ? W - 16 * k : 16 * k, H / 2 + 8 * k);
     }
+
+    drawHud();
   }
 
   /* ── run ── */
@@ -591,6 +634,24 @@
     syncHud();
   }
 
+  /* Escape leaves full screen and releases the mouse at once, which ends a run
+     in progress, so the two are never taken apart here. */
+  function toggleFull() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      return;
+    }
+    if (!stage.requestFullscreen) return;
+    const req = stage.requestFullscreen();
+    if (req && req.catch) req.catch(() => {});
+  }
+
+  function paintFull() {
+    const on = !!document.fullscreenElement;
+    btnFull.setAttribute("aria-pressed", String(on));
+    btnFull.textContent = on ? "⛶ windowed" : "⛶ full screen";
+  }
+
   function setMode(next) {
     if (!AIM3_MODES[next] || next === mode) return;
     mode = next;
@@ -646,6 +707,12 @@
   });
   btnSubmit.addEventListener("click", submitRun);
   btnSound.addEventListener("click", () => setMuted(!muted));
+  btnFull.addEventListener("click", toggleFull);
+  document.addEventListener("fullscreenchange", () => {
+    paintFull();
+    draw();
+  });
+  window.addEventListener("resize", draw);
   [selPreset, inValue, inDpi, inFov].forEach((el) => {
     el.addEventListener("change", readSettings);
     el.addEventListener("input", readSettings);
@@ -659,6 +726,11 @@
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     if (e.key === "m" || e.key === "M") {
       setMuted(!muted);
+      return;
+    }
+    if (e.key === "f" || e.key === "F") {
+      e.preventDefault();
+      toggleFull();
       return;
     }
     if (e.key === " " || e.key === "Enter") {
@@ -677,6 +749,7 @@
   loadCfg();
   paintSettings();
   readTokens();
+  paintFull();
   newRun();
   /* the attract frame is painted here rather than waiting on the first
      animation frame, which a tab that opens in the background never gets */
