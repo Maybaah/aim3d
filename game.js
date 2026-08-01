@@ -1,8 +1,8 @@
 /* Aim 3D for Maybaah's Arcade.
-   A gridshot: three spheres on a wall ten metres out, one replaced every time
-   you break one, thirty to clear. The mouse turns a camera rather than moving a
-   cursor, so a run is a list of the angles you fired at: the gap since the last
-   shot and the yaw and pitch of the shot itself, in thousandths of a degree.
+   Three scenarios on one wall: thirty kills against the clock, as many as you
+   can in a minute, and a minute of holding the crosshair on a sphere that will
+   not hold still. The mouse turns a camera rather than moving a cursor, so a
+   run is the angles it was fired or held at.
 
    Sensitivity never leaves the browser. It only decides how many degrees a
    mouse count is worth, and only the resulting angles are submitted, so no
@@ -27,6 +27,14 @@
   const AIM3_MAX_GAP = 20000;
   const AIM3_PITCH_OFFSET = 90000;
   const AIM3_YAW_SPAN = 360000;
+  const AIM3_SPRINT_MS = 60000;
+  const AIM3_SPRINT_MAX_SHOTS = 600;
+  /* Tracking is sampled rather than shot, at a rate coarse enough to keep the
+     tape small and fine enough that a third of a tenth of a second is the worst
+     the clock can be wrong by. */
+  const AIM3_TICK_MS = 1000 / 30;
+  const AIM3_TRACK_TICKS = 1800;
+  const AIM3_MAX_TICK_TURN = 180000;
   /* The silhouette is where a sine's last bit can differ between two builds of
      the same engine, so a shot inside this sliver of the edge is taken as the
      page called it. It is a millionth of the radius: nothing to aim with. */
@@ -37,6 +45,22 @@
     medium: { r: 0.35, spread: 4.0 },
     hard: { r: 0.22, spread: 5.0 },
   };
+
+  /* A tracked sphere is fatter and slower than a static one, because holding a
+     crosshair on a moving 22cm ball for a minute is not training, it is a joke. */
+  const AIM3_TRACK = {
+    easy: { r: 0.88, speed: 0.09 },
+    medium: { r: 0.56, speed: 0.12 },
+    hard: { r: 0.35, speed: 0.16 },
+  };
+
+  const AIM3_SCENARIOS = ["grid", "sprint", "track"];
+
+  /* Grid keeps the bare mode it shipped with, so the runs already standing on
+     those boards stay where they are. */
+  function aim3Board(scenario, mode) {
+    return scenario === "grid" ? mode : scenario + "-" + mode;
+  }
 
   function aim3Mulberry32(a) {
     return function () {
@@ -130,7 +154,7 @@
   }
 
   function aim3Decode(tape) {
-    if (typeof tape !== "string" || tape.length > 24 * (AIM3_ROUNDS + AIM3_MAX_MISSES)) return null;
+    if (typeof tape !== "string" || tape.length > 24 * AIM3_SPRINT_MAX_SHOTS) return null;
     if (!AIM3_TAPE_RE.test(tape)) return null;
     const shots = [];
     const re = /(\d{1,5})([hm])(\d{1,6}),(\d{1,6});/g;
@@ -141,49 +165,156 @@
     return shots;
   }
 
-  /* The clock is the sum of the gaps, first target to thirtieth kill, and every
-     miss buys a quarter second. Spraying the wall is slower than aiming at it. */
-  function aim3Replay(mode, seed, shots) {
+  /* Grid is ranked by the clock, first target to thirtieth kill, with a quarter
+     second for every miss. Sprint is ranked by kills in a fixed minute, ties
+     going to whoever wasted fewer shots getting them. */
+  function aim3Replay(scenario, mode, seed, shots) {
     if (!AIM3_MODES[mode]) return { ok: false, reason: "bad mode" };
-    if (!Array.isArray(shots) || shots.length > AIM3_ROUNDS + AIM3_MAX_MISSES) {
+    const sprint = scenario === "sprint";
+    if (!sprint && scenario !== "grid") return { ok: false, reason: "bad scenario" };
+    const maxShots = sprint ? AIM3_SPRINT_MAX_SHOTS : AIM3_ROUNDS + AIM3_MAX_MISSES;
+    if (!Array.isArray(shots) || shots.length > maxShots) {
       return { ok: false, reason: "bad shot log" };
     }
     const st = aim3New(mode, seed);
     for (const s of shots) {
-      if (st.hits >= AIM3_ROUNDS) return { ok: false, reason: "the tape runs past the last target" };
+      if (!sprint && st.hits >= AIM3_ROUNDS) return { ok: false, reason: "the tape runs past the last target" };
       if (s.dt < AIM3_MIN_GAP || s.dt > AIM3_MAX_GAP) return { ok: false, reason: "impossible shot timing" };
       if (s.yaw >= AIM3_YAW_SPAN || s.pitch > 2 * AIM3_PITCH_OFFSET) {
         return { ok: false, reason: "shot fired from an impossible angle" };
       }
       st.timeMs += s.dt;
+      if (sprint && st.timeMs > AIM3_SPRINT_MS) return { ok: false, reason: "that run ran past the minute" };
       const shot = aim3Apply(st, aim3Dir(s.yaw, s.pitch), s.hit);
       if (!shot.ok) return { ok: false, reason: shot.reason };
+      if (!sprint && st.misses > AIM3_MAX_MISSES) return { ok: false, reason: "too many misses" };
+    }
+    const acc = Math.round((st.hits / Math.max(1, st.hits + st.misses)) * 100);
+    if (sprint) {
+      if (st.hits < 1) return { ok: false, reason: "that run never hit anything" };
+      return {
+        ok: true,
+        timeMs: st.timeMs,
+        kills: st.hits,
+        misses: st.misses,
+        acc,
+        avg: Math.round(st.timeMs / st.hits),
+        score: -(st.hits * 1000) + st.misses,
+      };
     }
     if (st.hits < AIM3_ROUNDS) return { ok: false, reason: "that run never cleared every target" };
     return {
       ok: true,
       timeMs: st.timeMs,
+      kills: AIM3_ROUNDS,
       misses: st.misses,
-      acc: Math.round((AIM3_ROUNDS / (AIM3_ROUNDS + st.misses)) * 100),
+      acc,
       avg: Math.round(st.timeMs / AIM3_ROUNDS),
       score: st.timeMs + st.misses * AIM3_PENALTY,
+    };
+  }
+
+  /* ── tracking ──
+     One sphere, one minute, and the score is how long the crosshair was on it.
+     The path is drawn from the seed a tick at a time, so it is the same minute
+     for the page and for the referee. */
+
+  /* The path is the Worker's to choose, not the player's: a minute of tracking
+     rewards a lazy sphere, and a client that picks its own seed can go looking
+     for one. Everyone gets the same path on the same day instead. */
+  function aim3TrackSeed(day, mode) {
+    const salt = mode === "hard" ? 3 : mode === "medium" ? 2 : 1;
+    return (Math.imul(day, 2654435761) ^ Math.imul(salt, 40503)) >>> 0;
+  }
+
+  function aim3TrackNew(mode, seed) {
+    const cfg = AIM3_TRACK[mode];
+    const rnd = aim3Mulberry32(seed >>> 0);
+    return { cfg, rnd, x: 0, y: 0, vx: 0, vy: 0, hold: 0, r: cfg.r };
+  }
+
+  function aim3TrackStep(t) {
+    if (t.hold <= 0) {
+      const a = t.rnd() * Math.PI * 2;
+      const s = t.cfg.speed * (0.6 + 0.8 * t.rnd());
+      t.vx = Math.cos(a) * s;
+      /* flattened, because a sphere that climbs as readily as it strafes reads
+         as noise rather than as something dodging */
+      t.vy = Math.sin(a) * s * 0.55;
+      t.hold = 8 + Math.floor(t.rnd() * 22);
+    }
+    t.hold--;
+    t.x += t.vx;
+    t.y += t.vy;
+    if (t.x < -AIM3_HALF_W) { t.x = -AIM3_HALF_W; t.vx = -t.vx; }
+    if (t.x > AIM3_HALF_W) { t.x = AIM3_HALF_W; t.vx = -t.vx; }
+    if (t.y < -AIM3_HALF_H) { t.y = -AIM3_HALF_H; t.vy = -t.vy; }
+    if (t.y > AIM3_HALF_H) { t.y = AIM3_HALF_H; t.vy = -t.vy; }
+  }
+
+  function aim3TrackSphere(t) {
+    return { x: t.x, y: t.y, z: -AIM3_DIST, r: t.r };
+  }
+
+  const AIM3_TRACK_RE = /^(-?\d{1,6},-?\d{1,6};)*$/;
+
+  function aim3TrackEncode(samples) {
+    return samples.map((s) => s.dy + "," + s.dp + ";").join("");
+  }
+
+  function aim3TrackDecode(tape) {
+    if (typeof tape !== "string" || tape.length > 18 * AIM3_TRACK_TICKS) return null;
+    if (!AIM3_TRACK_RE.test(tape)) return null;
+    const out = [];
+    const re = /(-?\d{1,6}),(-?\d{1,6});/g;
+    let m;
+    while ((m = re.exec(tape))) out.push({ dy: +m[1], dp: +m[2] });
+    return out;
+  }
+
+  function aim3TrackReplay(mode, seed, samples) {
+    if (!AIM3_TRACK[mode]) return { ok: false, reason: "bad mode" };
+    if (!Array.isArray(samples) || samples.length !== AIM3_TRACK_TICKS) {
+      return { ok: false, reason: "a tracking run is exactly one minute" };
+    }
+    const t = aim3TrackNew(mode, seed);
+    let yaw = 0, pitch = AIM3_PITCH_OFFSET, on = 0;
+    for (const s of samples) {
+      if (s.dy > AIM3_MAX_TICK_TURN || s.dy < -AIM3_MAX_TICK_TURN ||
+          s.dp > AIM3_MAX_TICK_TURN || s.dp < -AIM3_MAX_TICK_TURN) {
+        return { ok: false, reason: "the view moved further than a view can" };
+      }
+      yaw = (((yaw + s.dy) % AIM3_YAW_SPAN) + AIM3_YAW_SPAN) % AIM3_YAW_SPAN;
+      pitch += s.dp;
+      if (pitch < 0 || pitch > 2 * AIM3_PITCH_OFFSET) {
+        return { ok: false, reason: "the view left the world" };
+      }
+      aim3TrackStep(t);
+      if (aim3Resolve([aim3TrackSphere(t)], aim3Dir(yaw, pitch)).struck >= 0) on++;
+    }
+    const onMs = Math.round(on * AIM3_TICK_MS);
+    return {
+      ok: true,
+      onTargetMs: onMs,
+      pct: Math.round((on / AIM3_TRACK_TICKS) * 100),
+      score: -onMs,
     };
   }
 
   /* ── end of the engine ── */
 
   const stage = document.getElementById("stage");
+  const stageBar = document.getElementById("stage-bar");
   const cv = document.getElementById("screen");
   const ctx = cv.getContext("2d");
   const overlay = document.getElementById("overlay");
   const ovTitle = document.getElementById("ov-title");
   const ovSub = document.getElementById("ov-sub");
   const ovStart = document.getElementById("ov-start");
-  const elRound = document.getElementById("h-round");
-  const elTime = document.getElementById("h-time");
-  const elMisses = document.getElementById("h-misses");
-  const elAvg = document.getElementById("h-avg");
-  const elBest = document.getElementById("h-best");
+  const slots = ["a", "b", "c", "d", "e"].map((k) => ({
+    label: document.getElementById("hud-" + k + "-label"),
+    value: document.getElementById("hud-" + k),
+  }));
   const btnNew = document.getElementById("btn-new");
   const btnSound = document.getElementById("btn-sound");
   const btnFull = document.getElementById("btn-full");
@@ -203,9 +334,14 @@
   let W = cv.width, H = cv.height;
   const PITCH_LIMIT = 80;
   const MAX_BACKING = 2560;
+  const COUNT_MS = 3000;
+  const API = "https://arcade-leaderboard.maybeez.workers.dev";
 
   let mode = "easy";
+  let scenario = "grid";
+  let board = null;
   let S = null;
+  let R = null;
   let cam = { yaw: 0, pitch: 0 };
   let locked = false;
 
@@ -224,6 +360,10 @@
     deg: "deg / count",
   };
 
+  function clamp(v, lo, hi) {
+    return v < lo ? lo : v > hi ? hi : v;
+  }
+
   function loadCfg() {
     const saved = (window.Arcade && Arcade.prefs) ? Arcade.prefs("aim3d") : null;
     cfg = Object.assign({}, DEFAULTS, saved || {});
@@ -231,10 +371,14 @@
     cfg.value = clamp(Number(cfg.value) || DEFAULTS.value, 0.001, 1000);
     cfg.dpi = clamp(Math.round(Number(cfg.dpi) || DEFAULTS.dpi), 100, 32000);
     cfg.fov = clamp(Math.round(Number(cfg.fov) || DEFAULTS.fov), 60, 130);
+    if (AIM3_MODES[cfg.mode]) mode = cfg.mode;
+    if (AIM3_SCENARIOS.indexOf(cfg.scenario) !== -1) scenario = cfg.scenario;
   }
 
   function saveCfg() {
-    if (window.Arcade && Arcade.setPrefs) Arcade.setPrefs("aim3d", cfg);
+    if (window.Arcade && Arcade.setPrefs) {
+      Arcade.setPrefs("aim3d", Object.assign({}, cfg, { mode, scenario }));
+    }
   }
 
   /* The one number the mouse actually needs: how far the camera turns per count
@@ -299,6 +443,8 @@
 
   const hitSound = () => blip(760, 1600, 0.06, "triangle", 0.16);
   const missSound = () => blip(220, 70, 0.13, "sawtooth", 0.1);
+  const tickSound = () => blip(420, 420, 0.05, "square", 0.07);
+  const goSound = () => blip(880, 880, 0.09, "square", 0.09);
 
   function setMuted(next) {
     muted = next;
@@ -307,10 +453,6 @@
   }
 
   /* ── camera and drawing ── */
-
-  function clamp(v, lo, hi) {
-    return v < lo ? lo : v > hi ? hi : v;
-  }
 
   function token(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -328,8 +470,20 @@
     };
   }
 
+  function view() {
+    if (R) return R.view;
+    return { yaw: yawMdeg(), pitch: pitchMdeg() };
+  }
+
+  function spheres() {
+    if (R) return R.scenario === "track" ? [aim3TrackSphere(R.track)] : R.st.active;
+    if (!S) return [];
+    return scenario === "track" ? [aim3TrackSphere(S.track)] : S.st.active;
+  }
+
   function basis() {
-    const f = aim3Dir(yawMdeg(), pitchMdeg());
+    const v = view();
+    const f = aim3Dir(v.yaw, v.pitch);
     /* world up is +Y, so right is forward crossed with it and up closes the set */
     const right = { x: -f.z, y: 0, z: f.x };
     const len = Math.hypot(right.x, right.z) || 1;
@@ -368,19 +522,22 @@
 
   /* In full screen the page's own row of numbers is gone, so the same figures
      are painted into the corner of the view. */
-  function drawHud() {
-    if (!document.fullscreenElement || !S) return;
-    const scale = W / 960;
-    const pad = Math.round(18 * scale);
-    ctx.font = "500 " + Math.round(15 * scale) + "px 'Geist Mono', monospace";
+  function drawHud(k) {
+    if (!document.fullscreenElement || (!S && !R)) return;
+    ctx.font = "500 " + Math.round(15 * k) + "px 'Geist Mono', monospace";
     ctx.textAlign = "left";
     ctx.fillStyle = paint.muted;
-    const clock = S.result ? S.result.score : (S.running ? performance.now() - S.t0 : 0);
-    ctx.fillText(
-      S.st.hits + "/" + AIM3_ROUNDS + "   " + fmt(clock) + "   " + S.st.misses +
-      (S.st.misses === 1 ? " miss" : " misses"),
-      pad, pad + Math.round(12 * scale)
-    );
+    ctx.fillText(hudLine(), 18 * k, 30 * k);
+  }
+
+  function drawCount(k) {
+    if (!S || !S.counting) return;
+    const left = S.countUntil - performance.now();
+    const n = Math.ceil(left / 1000);
+    ctx.textAlign = "center";
+    ctx.fillStyle = paint.accent;
+    ctx.font = "600 " + Math.round(64 * k) + "px 'Geist Mono', monospace";
+    ctx.fillText(n > 0 ? String(n) : "go", W / 2, H / 2 - 40 * k);
   }
 
   function draw() {
@@ -411,27 +568,26 @@
     }
     ctx.stroke();
 
-    if (S) {
-      const seen = S.st.active.map((s) => ({ s, p: project(s, b, focal) }))
-        .filter((e) => e.p)
-        .sort((a, c) => c.p.depth - a.p.depth);
-      for (const e of seen) {
-        const rpx = (e.s.r / e.p.depth) * focal;
-        if (rpx < 0.4) continue;
-        const g = ctx.createRadialGradient(
-          e.p.x - rpx * 0.35, e.p.y - rpx * 0.35, rpx * 0.1,
-          e.p.x, e.p.y, rpx
-        );
-        g.addColorStop(0, paint.accent);
-        g.addColorStop(1, paint.border);
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(e.p.x, e.p.y, rpx, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = paint.accent;
-        ctx.lineWidth = k;
-        ctx.stroke();
-      }
+    const onTarget = (scenario === "track" || (R && R.scenario === "track")) && trackingOn();
+    const seen = spheres().map((s) => ({ s, p: project(s, b, focal) }))
+      .filter((e) => e.p)
+      .sort((a, c) => c.p.depth - a.p.depth);
+    for (const e of seen) {
+      const rpx = (e.s.r / e.p.depth) * focal;
+      if (rpx < 0.4) continue;
+      const g = ctx.createRadialGradient(
+        e.p.x - rpx * 0.35, e.p.y - rpx * 0.35, rpx * 0.1,
+        e.p.x, e.p.y, rpx
+      );
+      g.addColorStop(0, paint.accent);
+      g.addColorStop(1, paint.border);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(e.p.x, e.p.y, rpx, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = paint.accent;
+      ctx.lineWidth = onTarget ? 3 * k : k;
+      ctx.stroke();
     }
 
     // crosshair
@@ -449,14 +605,22 @@
     // a nudge back toward the wall when the view has swung off it
     const centre = project({ x: 0, y: 0, z: -AIM3_DIST }, b, focal);
     if (!centre || centre.x < 0 || centre.x > W || centre.y < 0 || centre.y > H) {
-      const side = (0 * b.right.x + 0 * b.right.y + -AIM3_DIST * b.right.z) >= 0 ? 1 : -1;
+      const side = -AIM3_DIST * b.right.z >= 0 ? 1 : -1;
       ctx.fillStyle = paint.muted;
       ctx.font = "600 " + Math.round(22 * k) + "px 'Geist Mono', monospace";
       ctx.textAlign = side > 0 ? "right" : "left";
       ctx.fillText(side > 0 ? "▶" : "◀", side > 0 ? W - 16 * k : 16 * k, H / 2 + 8 * k);
     }
 
-    drawHud();
+    if (R) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = paint.muted;
+      ctx.font = "500 " + Math.round(14 * k) + "px 'Geist Mono', monospace";
+      ctx.fillText("replay · " + R.name + " · " + R.label, W / 2, H - 22 * k);
+    }
+
+    drawCount(k);
+    drawHud(k);
   }
 
   /* ── run ── */
@@ -473,25 +637,77 @@
     return window.Arcade ? Arcade.fmtTime(ms) : (ms / 1000).toFixed(1) + "s";
   }
 
-  function bestFor(m) {
+  function trackingOn() {
+    const src = R ? R : S;
+    return !!(src && src.onNow);
+  }
+
+  function bestFor() {
     if (!window.Arcade) return null;
-    const runs = Arcade.getScores("aim3d").filter((s) => s.mode === m && typeof s.ms === "number");
+    const runs = Arcade.getScores("aim3d").filter(
+      (s) => s.mode === mode && (s.scenario || "grid") === scenario && typeof s.rank === "number"
+    );
     if (!runs.length) return null;
-    return runs.sort((a, b) => a.ms - b.ms)[0];
+    return runs.sort((a, b) => a.rank - b.rank)[0];
+  }
+
+  const SCENARIO_LABEL = { grid: "30 kills", sprint: "60 seconds", track: "tracking" };
+
+  function bestText() {
+    const best = bestFor();
+    if (!best) return "none";
+    if (scenario === "track") return fmt(best.onTargetMs);
+    if (scenario === "sprint") return best.kills + " kills";
+    return fmt(best.ms);
+  }
+
+  function clockLeft() {
+    if (!S || !S.running) return scenario === "grid" ? 0 : AIM3_SPRINT_MS;
+    const gone = performance.now() - S.t0;
+    return Math.max(0, AIM3_SPRINT_MS - gone);
+  }
+
+  function hudLine() {
+    const src = R || S;
+    if (!src) return "";
+    if ((R ? R.scenario : scenario) === "track") {
+      const on = R ? R.onMs : (S.onTicks * AIM3_TICK_MS);
+      return fmt(on) + " on target";
+    }
+    const st = src.st;
+    return st.hits + (R || scenario === "sprint" ? " kills" : "/" + AIM3_ROUNDS) +
+      "   " + st.misses + (st.misses === 1 ? " miss" : " misses");
+  }
+
+  function setSlot(i, label, value) {
+    slots[i].label.textContent = label;
+    slots[i].value.textContent = value;
   }
 
   function syncHud() {
-    const done = S ? S.st.hits : 0;
-    elRound.textContent = done + "/" + AIM3_ROUNDS;
-    elMisses.textContent = S ? S.st.misses : 0;
-    if (S && S.result) elTime.textContent = fmt(S.result.score);
-    else if (S && S.running) elTime.textContent = fmt(performance.now() - S.t0);
-    else elTime.textContent = fmt(0);
-    if (S && S.result) elAvg.textContent = S.result.avg + "ms";
-    else if (S && S.running && done) elAvg.textContent = Math.round((performance.now() - S.t0) / done) + "ms";
-    else elAvg.textContent = "0ms";
-    const best = bestFor(mode);
-    elBest.textContent = best ? fmt(best.ms) : "none";
+    if (scenario === "track") {
+      const on = S ? S.onTicks * AIM3_TICK_MS : 0;
+      const done = S ? S.ticks : 0;
+      setSlot(0, "on target", fmt(on));
+      setSlot(1, "left", fmt(Math.max(0, (AIM3_TRACK_TICKS - done) * AIM3_TICK_MS)));
+      setSlot(2, "hold", (done ? Math.round((S.onTicks / done) * 100) : 0) + "%");
+      setSlot(3, "", "");
+      setSlot(4, "best", bestText());
+      return;
+    }
+    const st = S ? S.st : null;
+    const hits = st ? st.hits : 0;
+    if (scenario === "sprint") {
+      setSlot(0, "kills", String(hits));
+      setSlot(1, "left", fmt(S && S.running ? clockLeft() : AIM3_SPRINT_MS));
+    } else {
+      setSlot(0, "target", hits + "/" + AIM3_ROUNDS);
+      setSlot(1, "time", fmt(S && S.result ? S.result.score : (S && S.running ? performance.now() - S.t0 : 0)));
+    }
+    setSlot(2, "misses", String(st ? st.misses : 0));
+    const avg = S && S.result ? S.result.avg : (S && S.running && hits ? Math.round((performance.now() - S.t0) / hits) : 0);
+    setSlot(3, "avg", avg + "ms");
+    setSlot(4, "best", bestText());
   }
 
   function showOverlay(title, sub, button) {
@@ -503,32 +719,54 @@
   }
 
   const MODE_COPY = {
-    easy: "Easy: wide spheres, three up at a time, thirty to clear.",
-    medium: "Medium: the same wall, spheres at about a third of the area.",
-    hard: "Hard: small spheres. Every miss still costs a quarter second.",
+    grid: "Thirty kills, three spheres up at a time, ranked by the clock.",
+    sprint: "One minute. As many kills as you can take in it.",
+    track: "One minute of holding the crosshair on a sphere that moves.",
   };
 
+  function today() {
+    return window.Arcade && Arcade.utcDayKey ? Arcade.utcDayKey(0) : 0;
+  }
+
   function newRun() {
-    const seed = Math.floor(Math.random() * 0x100000000) >>> 0;
+    const day = today();
+    const seed = scenario === "track"
+      ? aim3TrackSeed(day, mode)
+      : Math.floor(Math.random() * 0x100000000) >>> 0;
     S = {
       seed,
+      day,
+      scenario,
+      mode,
       st: aim3New(mode, seed),
+      track: aim3TrackNew(mode, seed),
       shots: [],
+      samples: [],
+      ticks: 0,
+      onTicks: 0,
+      onNow: false,
+      recYaw: 0,
+      recPitch: AIM3_PITCH_OFFSET,
       t0: 0,
       last: 0,
+      counting: false,
+      countUntil: 0,
+      countStep: 0,
       running: false,
       dead: false,
       result: null,
     };
+    R = null;
     cam = { yaw: 0, pitch: 0 };
     submitWrap.style.display = "none";
     runStatus.textContent = "";
-    showOverlay("Aim 3D", MODE_COPY[mode] + " Click to take the mouse.", "Click to start");
+    showOverlay("Aim 3D", MODE_COPY[scenario] + " Click to take the mouse.", "Click to start");
     syncHud();
     draw();
   }
 
   function start() {
+    if (R) { R = null; newRun(); }
     if (!S || S.result || S.dead) newRun();
     if (!cv.requestPointerLock) {
       showOverlay("No pointer lock here",
@@ -536,6 +774,9 @@
         "");
       return;
     }
+    /* the stage is put where it can be seen first, so locking the mouse does
+       not leave the view half off the bottom of the window */
+    stage.scrollIntoView({ block: "center", behavior: "instant" });
     /* raw counts where the browser has them, so OS pointer acceleration does
        not sit between the mouse and the camera */
     let req;
@@ -548,49 +789,75 @@
     else if (!req) { try { cv.requestPointerLock(); } catch (_) {} }
   }
 
-  function beginRun() {
+  /* Three seconds of nothing before the clock, so the first target is not
+     found by a hand that was still on its way to the mouse. */
+  function beginCountdown() {
     overlay.classList.remove("show");
+    S.counting = true;
+    S.countUntil = performance.now() + COUNT_MS;
+    S.countStep = 4;
+    syncHud();
+  }
+
+  function beginRun() {
+    S.counting = false;
     S.running = true;
     S.t0 = performance.now();
     S.last = S.t0;
+    goSound();
     syncHud();
   }
 
   function abandon(why) {
     S.running = false;
+    S.counting = false;
     S.dead = true;
     S.shots = [];
+    S.samples = [];
     showOverlay("Run void", why, "Start again");
     syncHud();
   }
 
   function finish() {
     S.running = false;
-    const run = aim3Replay(mode, S.seed, S.shots);
+    const run = scenario === "track"
+      ? aim3TrackReplay(mode, S.seed, S.samples)
+      : aim3Replay(scenario, mode, S.seed, S.shots);
     if (!run.ok) {
       abandon("This run did not verify locally: " + run.reason + ".");
       return;
     }
     S.result = run;
     if (document.pointerLockElement) document.exitPointerLock();
-    showOverlay("Cleared",
-      fmt(run.score) + " with " + run.misses + " " + (run.misses === 1 ? "miss" : "misses") +
-      " · " + run.avg + "ms per target · " + run.acc + "% accuracy. " +
-      "Name the run for the leaderboard.",
-      "Play again");
+    showOverlay("Run over", resultLine(run), "Play again");
     if (window.Arcade) {
-      Arcade.addScore("aim3d", {
-        mode,
-        ms: run.score,
-        timeMs: run.timeMs,
-        misses: run.misses,
-        acc: run.acc,
-        avg: run.avg,
-      });
+      Arcade.addScore("aim3d", Object.assign({ mode, scenario, rank: run.score }, detailOf(run)));
       submitWrap.style.display = "flex";
       runName.value = (Arcade.getPlayer && Arcade.getPlayer()) || "";
     }
     syncHud();
+  }
+
+  function detailOf(run) {
+    if (scenario === "track") return { onTargetMs: run.onTargetMs, pct: run.pct };
+    if (scenario === "sprint") {
+      return { kills: run.kills, misses: run.misses, acc: run.acc, avg: run.avg, timeMs: run.timeMs };
+    }
+    return { ms: run.score, timeMs: run.timeMs, misses: run.misses, acc: run.acc, avg: run.avg };
+  }
+
+  function resultLine(run) {
+    if (scenario === "track") {
+      return fmt(run.onTargetMs) + " on target out of a minute, " + run.pct +
+        "% of it. Name the run for the leaderboard.";
+    }
+    if (scenario === "sprint") {
+      return run.kills + " kills in the minute · " + run.acc + "% accuracy · " +
+        run.avg + "ms per kill. Name the run for the leaderboard.";
+    }
+    return fmt(run.score) + " with " + run.misses + " " + (run.misses === 1 ? "miss" : "misses") +
+      " · " + run.avg + "ms per target · " + run.acc +
+      "% accuracy. Name the run for the leaderboard.";
   }
 
   function onMove(e) {
@@ -602,7 +869,7 @@
   }
 
   function fire() {
-    if (!S || !S.running) return;
+    if (!S || !S.running || scenario === "track") return;
     const now = performance.now();
     const dt = Math.round(now - S.last);
     /* the tape has a floor under it, so a shot inside that floor is dropped
@@ -612,30 +879,160 @@
       abandon("Nothing was fired for twenty seconds, so the tape stops being a run.");
       return;
     }
+    if (scenario === "sprint" && S.st.timeMs + dt > AIM3_SPRINT_MS) {
+      finish();
+      return;
+    }
 
     const yaw = yawMdeg(), pitch = pitchMdeg();
     const shot = aim3Apply(S.st, aim3Dir(yaw, pitch), null);
+    S.st.timeMs += dt;
     S.shots.push({ dt, hit: shot.hit, yaw, pitch });
     S.last = now;
 
     if (shot.hit) {
       hitSound();
-      if (S.st.hits >= AIM3_ROUNDS) {
+      if (scenario === "grid" && S.st.hits >= AIM3_ROUNDS) {
         finish();
         return;
       }
     } else {
       missSound();
-      if (S.st.misses > AIM3_MAX_MISSES) {
+      if (scenario === "grid" && S.st.misses > AIM3_MAX_MISSES) {
         abandon("Too many misses in one run.");
+        return;
+      }
+      if (scenario === "sprint" && S.shots.length >= AIM3_SPRINT_MAX_SHOTS) {
+        finish();
         return;
       }
     }
     syncHud();
   }
 
-  /* Escape leaves full screen and releases the mouse at once, which ends a run
-     in progress, so the two are never taken apart here. */
+  /* One tick of tracking: the angle actually written down is the integer one,
+     so the page scores the same view the Worker will rebuild from the tape. */
+  function trackTick() {
+    let dy = yawMdeg() - S.recYaw;
+    if (dy > AIM3_YAW_SPAN / 2) dy -= AIM3_YAW_SPAN;
+    if (dy < -AIM3_YAW_SPAN / 2) dy += AIM3_YAW_SPAN;
+    dy = clamp(dy, -AIM3_MAX_TICK_TURN, AIM3_MAX_TICK_TURN);
+    const dp = clamp(pitchMdeg() - S.recPitch, -AIM3_MAX_TICK_TURN, AIM3_MAX_TICK_TURN);
+    S.recYaw = (((S.recYaw + dy) % AIM3_YAW_SPAN) + AIM3_YAW_SPAN) % AIM3_YAW_SPAN;
+    S.recPitch += dp;
+    S.samples.push({ dy, dp });
+    aim3TrackStep(S.track);
+    S.onNow = aim3Resolve([aim3TrackSphere(S.track)], aim3Dir(S.recYaw, S.recPitch)).struck >= 0;
+    if (S.onNow) S.onTicks++;
+    S.ticks++;
+  }
+
+  function stepRun(now) {
+    if (S.counting) {
+      const left = S.countUntil - now;
+      const step = Math.ceil(left / 1000);
+      if (step !== S.countStep) {
+        S.countStep = step;
+        if (step > 0) tickSound();
+      }
+      if (left <= 0) beginRun();
+      return;
+    }
+    if (!S.running) return;
+    if (scenario === "track") {
+      const want = Math.min(AIM3_TRACK_TICKS, Math.floor((now - S.t0) / AIM3_TICK_MS));
+      while (S.ticks < want) trackTick();
+      if (S.ticks >= AIM3_TRACK_TICKS) finish();
+      return;
+    }
+    if (scenario === "sprint" && now - S.t0 >= AIM3_SPRINT_MS) finish();
+  }
+
+  /* ── replay ──
+     The board hands back the tape a run was verified from, so it can be played
+     here against the same seed. Only the shot scenarios are kept: a minute of
+     tracking is a thousand samples and has no business in a leaderboard row. */
+
+  function startReplay(row) {
+    const sc = row.scenario === "sprint" ? "sprint" : "grid";
+    const shots = aim3Decode(row.tape);
+    if (!shots || !shots.length || !AIM3_MODES[row.mode]) {
+      runStatus.textContent = "that run has no tape to play";
+      return;
+    }
+    if (document.pointerLockElement) document.exitPointerLock();
+    S = null;
+    R = {
+      scenario: sc,
+      mode: row.mode,
+      name: row.name || "someone",
+      label: SCENARIO_LABEL[sc] + " · " + row.mode,
+      st: aim3New(row.mode, row.seed >>> 0),
+      shots,
+      i: 0,
+      held: 0,
+      view: { yaw: shots[0].yaw, pitch: shots[0].pitch },
+      from: { yaw: shots[0].yaw, pitch: shots[0].pitch },
+      last: performance.now(),
+    };
+    overlay.classList.remove("show");
+    stage.scrollIntoView({ block: "center", behavior: "instant" });
+    syncHud();
+    draw();
+  }
+
+  function stepReplay(now) {
+    const dt = now - R.last;
+    R.last = now;
+    const shot = R.shots[R.i];
+    if (!shot) return;
+    R.held += dt;
+    const span = Math.max(1, shot.dt);
+    const t = Math.min(1, R.held / span);
+    /* the tape holds where each shot was aimed, not the path between them, so
+       the camera is walked from one to the next rather than invented */
+    let turn = shot.yaw - R.from.yaw;
+    if (turn > AIM3_YAW_SPAN / 2) turn -= AIM3_YAW_SPAN;
+    if (turn < -AIM3_YAW_SPAN / 2) turn += AIM3_YAW_SPAN;
+    R.view = {
+      yaw: (((R.from.yaw + turn * t) % AIM3_YAW_SPAN) + AIM3_YAW_SPAN) % AIM3_YAW_SPAN,
+      pitch: R.from.pitch + (shot.pitch - R.from.pitch) * t,
+    };
+    if (R.held >= span) {
+      const res = aim3Apply(R.st, aim3Dir(shot.yaw, shot.pitch), shot.hit);
+      if (res.ok && res.hit) hitSound(); else missSound();
+      R.from = { yaw: shot.yaw, pitch: shot.pitch };
+      R.held = 0;
+      R.i++;
+      if (R.i >= R.shots.length) {
+        const done = R;
+        R = null;
+        newRun();
+        showOverlay("Replay over",
+          done.name + " took " + done.st.hits + " kills with " + done.st.misses +
+          (done.st.misses === 1 ? " miss" : " misses") + ".", "Click to start");
+      }
+    }
+  }
+
+  async function watchRun(ev) {
+    const d = ev.detail || {};
+    if (d.game !== "aim3d") return;
+    runStatus.textContent = "loading that run…";
+    try {
+      const res = await fetch(API + "/api/replay?game=aim3d&board=" +
+        encodeURIComponent(d.board) + "&rid=" + encodeURIComponent(d.rid));
+      const body = await res.json();
+      if (!res.ok || !body.tape) throw new Error(body.error || "no tape kept for that run");
+      runStatus.textContent = "";
+      startReplay(body);
+    } catch (err) {
+      runStatus.textContent = (err && err.message) || "could not load that run";
+    }
+  }
+
+  /* ── controls ── */
+
   function toggleFull() {
     if (document.fullscreenElement) {
       document.exitFullscreen();
@@ -652,14 +1049,35 @@
     btnFull.textContent = on ? "⛶ windowed" : "⛶ full screen";
   }
 
-  function setMode(next) {
-    if (!AIM3_MODES[next] || next === mode) return;
-    mode = next;
+  function paintPills() {
     document.querySelectorAll("[data-mode]").forEach((p) => {
       p.setAttribute("aria-pressed", String(p.dataset.mode === mode));
     });
+    document.querySelectorAll("[data-scenario]").forEach((p) => {
+      p.setAttribute("aria-pressed", String(p.dataset.scenario === scenario));
+    });
+  }
+
+  function setMode(next) {
+    if (!AIM3_MODES[next] || next === mode) return;
+    if (S && S.running) return;
+    mode = next;
+    paintPills();
+    saveCfg();
     if (document.pointerLockElement) document.exitPointerLock();
     newRun();
+    if (board) board.setState({ mode });
+  }
+
+  function setScenario(next) {
+    if (AIM3_SCENARIOS.indexOf(next) === -1 || next === scenario) return;
+    if (S && S.running) return;
+    scenario = next;
+    paintPills();
+    saveCfg();
+    if (document.pointerLockElement) document.exitPointerLock();
+    newRun();
+    if (board) board.setState({ scenario });
   }
 
   async function submitRun() {
@@ -670,11 +1088,14 @@
     btnSubmit.disabled = true;
     try {
       const res = await Arcade.submit("aim3d", {
+        scenario,
         mode,
         seed: S.seed,
-        moves: aim3Encode(S.shots),
+        day: S.day,
+        moves: scenario === "track" ? aim3TrackEncode(S.samples) : aim3Encode(S.shots),
       });
       runStatus.textContent = res && res.rank ? "ranked #" + res.rank : "submitted";
+      if (board) board.render();
     } catch (err) {
       runStatus.textContent = (err && err.message) || "submission failed";
     } finally {
@@ -686,10 +1107,25 @@
     locked = document.pointerLockElement === cv;
     stage.classList.toggle("locked", locked);
     if (locked) {
-      if (S && !S.running && !S.result && !S.dead) beginRun();
+      if (S && !S.running && !S.counting && !S.result && !S.dead) beginCountdown();
       return;
     }
-    if (S && S.running) abandon("The mouse was released, so the run stops here.");
+    if (S && (S.running || S.counting)) {
+      if (S.counting) {
+        S.counting = false;
+        showOverlay("Aim 3D", MODE_COPY[scenario] + " Click to take the mouse.", "Click to start");
+      } else {
+        abandon("The mouse was released, so the run stops here.");
+      }
+    }
+  });
+
+  /* A hidden tab stops animating but not counting, so a run that comes back
+     from another window would carry a gap nobody played. */
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && S && (S.running || S.counting)) {
+      abandon("The tab went away mid run, and a run is measured in wall time.");
+    }
   });
 
   cv.addEventListener("mousedown", (e) => {
@@ -699,10 +1135,16 @@
     else start();
   });
   cv.addEventListener("contextmenu", (e) => e.preventDefault());
+  /* a locked mouse still scrolls the page underneath it, which is how a run
+     ends up looking at the footer */
+  stage.addEventListener("wheel", (e) => {
+    if (locked) e.preventDefault();
+  }, { passive: false });
   document.addEventListener("mousemove", onMove);
   ovStart.addEventListener("click", start);
   btnNew.addEventListener("click", () => {
     if (document.pointerLockElement) document.exitPointerLock();
+    R = null;
     newRun();
   });
   btnSubmit.addEventListener("click", submitRun);
@@ -713,41 +1155,46 @@
     draw();
   });
   window.addEventListener("resize", draw);
-  [selPreset, inValue, inDpi, inFov].forEach((el) => {
-    el.addEventListener("change", readSettings);
-    el.addEventListener("input", readSettings);
-  });
+  window.addEventListener("arcade:replay", watchRun);
   document.querySelectorAll("[data-mode]").forEach((p) => {
     p.addEventListener("click", () => setMode(p.dataset.mode));
   });
+  document.querySelectorAll("[data-scenario]").forEach((p) => {
+    p.addEventListener("click", () => setScenario(p.dataset.scenario));
+  });
+
+  const MODE_KEYS = { 1: "easy", 2: "medium", 3: "hard" };
+  const SCENARIO_KEYS = { 4: "grid", 5: "sprint", 6: "track" };
 
   document.addEventListener("keydown", (e) => {
     const tag = e.target && e.target.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-    if (e.key === "m" || e.key === "M") {
-      setMuted(!muted);
-      return;
-    }
-    if (e.key === "f" || e.key === "F") {
+    /* the page never wants the space bar or the arrows: both scroll it out from
+       under a run that is still going */
+    if (e.key === " " || e.key.indexOf("Arrow") === 0 || e.key === "PageDown" || e.key === "PageUp") {
       e.preventDefault();
-      toggleFull();
-      return;
     }
+    if (e.key === "m" || e.key === "M") { setMuted(!muted); return; }
+    if (e.key === "f" || e.key === "F") { e.preventDefault(); toggleFull(); return; }
+    if (MODE_KEYS[e.key]) { setMode(MODE_KEYS[e.key]); return; }
+    if (SCENARIO_KEYS[e.key]) { setScenario(SCENARIO_KEYS[e.key]); return; }
     if (e.key === " " || e.key === "Enter") {
-      if (S && S.running) return;
-      e.preventDefault();
+      if (S && (S.running || S.counting)) return;
       start();
     }
   });
 
-  function loop() {
-    if (S && S.running) syncHud();
+  function loop(now) {
+    if (R) stepReplay(now);
+    else if (S) stepRun(now);
+    if (S && (S.running || S.counting)) syncHud();
     draw();
     requestAnimationFrame(loop);
   }
 
   loadCfg();
   paintSettings();
+  paintPills();
   readTokens();
   paintFull();
   newRun();
@@ -755,4 +1202,11 @@
      animation frame, which a tab that opens in the background never gets */
   draw();
   requestAnimationFrame(loop);
+
+  if (window.Arcade && Arcade.mountBoard) {
+    board = Arcade.mountBoard(document.getElementById("board-embed"), {
+      game: "aim3d", title: "Global board", limit: 10, selfLink: false,
+      hiddenAxes: ["mode", "scenario"], state: { mode, scenario },
+    });
+  }
 })();

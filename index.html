@@ -73,20 +73,41 @@
       display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 24px;
       font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary);
     }
-    /* Every number gets a slot wide enough for the longest value it can hold,
-       so a run does not shuffle the row sideways on every tick. */
+    /* Every label and every number gets a slot as wide as the longest thing it
+       can hold, so neither a ticking clock nor a change of scenario shuffles
+       the row sideways. */
+    .hud i { display: inline-block; font-style: normal; }
     .hud b {
       display: inline-block; text-align: right;
       color: var(--text-primary); font-weight: 600;
       font-variant-numeric: tabular-nums;
     }
-    #h-round { min-width: 5ch; }
-    #h-time, #h-best { min-width: 6ch; }
-    #h-misses { min-width: 3ch; }
-    #h-avg { min-width: 6ch; }
+    #hud-a-label { min-width: 9ch; }
+    #hud-b-label, #hud-d-label, #hud-e-label { min-width: 4ch; }
+    #hud-c-label { min-width: 6ch; }
+    #hud-a, #hud-b, #hud-d { min-width: 6ch; }
+    #hud-c { min-width: 4ch; }
+    #hud-e { min-width: 9ch; }
+    /* the two toggles change their own labels, so they keep a slot too */
+    #btn-sound { min-width: 92px; }
+    #btn-full { min-width: 118px; }
     .hud .spacer { flex: 1; }
 
     .stage { position: relative; margin-top: 16px; }
+
+    /* The pills live inside the stage rather than up in the header, because in
+       full screen the stage is the only thing on the screen. */
+    .stage-bar {
+      position: absolute; top: 10px; left: 10px; right: 10px; z-index: 6;
+      display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between;
+      pointer-events: none;
+    }
+    .stage-bar .pill-row {
+      display: flex; gap: 6px; pointer-events: auto;
+      background: rgba(10, 10, 10, 0.55); padding: 4px; border-radius: 10px;
+      backdrop-filter: blur(2px);
+    }
+    .stage.locked .stage-bar { display: none; }
     #screen {
       display: block; width: 100%; height: auto;
       background: var(--bg-surface);
@@ -164,19 +185,17 @@
         <p class="eyebrow">Cabinet 12</p>
         <h1 style="font-size: 28px; margin-top: 6px;">Aim 3D</h1>
       </div>
-      <div class="mode-pills" role="group" aria-label="Target size">
-        <button class="pill" data-mode="easy" aria-pressed="true">Easy</button>
-        <button class="pill" data-mode="medium" aria-pressed="false">Medium</button>
-        <button class="pill" data-mode="hard" aria-pressed="false">Hard</button>
-      </div>
+      <p class="mono" style="font-size: 11px; color: var(--text-muted);">
+        1 2 3 difficulty · 4 5 6 scenario · F full screen · M sound
+      </p>
     </div>
 
     <div class="hud">
-      <span>target <b id="h-round">0/30</b></span>
-      <span>time <b id="h-time">0.0s</b></span>
-      <span>misses <b id="h-misses">0</b></span>
-      <span>avg <b id="h-avg">0ms</b></span>
-      <span>best <b id="h-best">none</b></span>
+      <span><i id="hud-a-label">target</i> <b id="hud-a">0/30</b></span>
+      <span><i id="hud-b-label">time</i> <b id="hud-b">0.0s</b></span>
+      <span><i id="hud-c-label">misses</i> <b id="hud-c">0</b></span>
+      <span><i id="hud-d-label">avg</i> <b id="hud-d">0ms</b></span>
+      <span><i id="hud-e-label">best</i> <b id="hud-e">none</b></span>
       <span class="spacer"></span>
       <button class="btn btn-secondary btn-sm" id="btn-sound" aria-pressed="true" title="Blip on a hit, thud on a miss (M)">♪ sound</button>
       <button class="btn btn-secondary btn-sm" id="btn-full" aria-pressed="false" title="Fill the screen (F)">⛶ full screen</button>
@@ -185,6 +204,18 @@
 
     <div class="stage" id="stage">
       <canvas id="screen" width="960" height="540" aria-label="Aim trainer view"></canvas>
+      <div class="stage-bar" id="stage-bar">
+        <div class="pill-row" role="group" aria-label="Scenario">
+          <button class="pill" data-scenario="grid" aria-pressed="true">30 kills</button>
+          <button class="pill" data-scenario="sprint" aria-pressed="false">60 seconds</button>
+          <button class="pill" data-scenario="track" aria-pressed="false">Tracking</button>
+        </div>
+        <div class="pill-row" role="group" aria-label="Difficulty">
+          <button class="pill" data-mode="easy" aria-pressed="true">Easy</button>
+          <button class="pill" data-mode="medium" aria-pressed="false">Medium</button>
+          <button class="pill" data-mode="hard" aria-pressed="false">Hard</button>
+        </div>
+      </div>
       <div id="overlay" role="status" aria-live="polite">
         <h2 id="ov-title">Aim 3D</h2>
         <p id="ov-sub">Three spheres on the wall, thirty to clear. Click to take the mouse.</p>
@@ -241,10 +272,14 @@
       Click the view to hand the mouse over and the camera starts turning with
       it: no cursor, just yaw and pitch, the way a shooter aims. Three spheres
       sit on a wall ten metres out and a new one appears every time you break
-      one, thirty to clear. A miss costs a quarter second rather than the run.
-      Escape gives the mouse back and ends the run where it stands. F fills the
-      screen, and it is worth doing before you start rather than during a run,
-      since some browsers drop the mouse when the window changes shape.
+      one. Three scenarios share that wall: thirty kills against the clock,
+      as many kills as you can take in one minute, and a minute of holding the
+      crosshair on a single sphere that will not hold still. A miss costs a
+      quarter second rather than the run, and three seconds of countdown run
+      before the clock does. Escape gives the mouse back and ends the run where
+      it stands. F fills the screen, and it is worth doing before you start
+      rather than during a run, since some browsers drop the mouse when the
+      window changes shape.
     </p>
 
     <p style="margin-top: 16px; font-size: 13px; color: var(--text-muted); line-height: 1.7; max-width: 64ch;">
@@ -255,7 +290,11 @@
       has a hand on the numbers. Sensitivity is never submitted. A run is the
       angles you fired at, and the seed the spheres came from, so the
       <a href="/leaderboard/" style="text-decoration: underline;">global leaderboard</a>
-      is decided by a Worker that fires every shot again itself.
+      is decided by a Worker that fires every shot again itself. The tracking
+      path is the one thing the Worker picks rather than the page: everyone gets
+      the same minute on the same day, because a run that hunts for a lazy
+      sphere is not a run. Shot runs keep their tape on the board, so any row
+      with a watch button can be played back here.
     </p>
   </div>
 </main>
@@ -273,22 +312,5 @@
 
 <script src="/assets/arcade.js"></script>
 <script src="game.js"></script>
-<script>
-  (function () {
-    /* The page already has size pills driving the game, so the widget hides its
-       own copy and follows those instead. */
-    function currentMode() {
-      var on = document.querySelector('[data-mode][aria-pressed="true"]');
-      return on ? on.dataset.mode : "easy";
-    }
-    var board = Arcade.mountBoard(document.getElementById("board-embed"), {
-      game: "aim3d", title: "Global board", limit: 10, selfLink: false,
-      hiddenAxes: ["mode"], state: { mode: currentMode() }
-    });
-    document.querySelectorAll("[data-mode]").forEach(function (p) {
-      p.addEventListener("click", function () { board.setState({ mode: p.dataset.mode }); });
-    });
-  })();
-</script>
 </body>
 </html>

@@ -5,11 +5,28 @@ A first person gridshot: the mouse turns a camera, not a cursor. Part of
 
 **Play:** https://maybaah.github.io/aim3d/
 
+## Scenarios
+
+Three spheres stand on a wall ten metres out. Break one and another appears.
+
+| Scenario | Board | What ranks it |
+| :-- | :-- | :-- |
+| **30 kills** | `<mode>` | the clock, first shot to thirtieth kill, plus 0.25s per miss |
+| **60 seconds** | `sprint-<mode>` | kills taken in one minute, ties to whoever wasted fewer shots |
+| **Tracking** | `track-<mode>` | milliseconds the crosshair was on a single moving sphere, out of a minute |
+
+The tracking path is the **Worker's** to choose, not the page's: it comes from
+the day and the mode, so everyone gets the same minute on the same day. A run
+that picks its own seed can go hunting for a lazy sphere, and that is not a run.
+
 ## Rules
 
-- Three spheres stand on a wall ten metres out. Break one and another appears.
-- A run is 30 kills. The clock runs from the first shot to the last kill.
 - A miss costs 0.25s, not the run.
+- Three seconds of countdown before the clock starts.
+- `1` `2` `3` pick the difficulty, `4` `5` `6` the scenario, and both live on
+  the view itself so they are still there in full screen.
+- Leaving the tab mid run voids it, because a run is wall time and a hidden tab
+  stops drawing but not counting.
 - Three sizes, three boards: **easy** (r 0.55), **medium** (r 0.35), **hard**
   (r 0.22), in a world where the wall spans 9 by 5 metres.
 - Escape gives the mouse back and ends the run where it stands, because the tape
@@ -73,8 +90,25 @@ gets.
 
 | Board | What |
 | :-- | :-- |
-| `easy` / `medium` / `hard` | all-time, one row per player, best run counts |
-| `<mode>-<YYYYMMDD>` | the same run on the day it was played, dated by the Worker |
+| `easy` / `medium` / `hard` | 30 kills, all-time, one row per player |
+| `sprint-<mode>` | kills in a minute |
+| `track-<mode>` | milliseconds on target |
+| `<board>-<YYYYMMDD>` | the same run on the day it was played, dated by the Worker |
+
+The 30 kill boards keep the bare mode name they shipped with, so the runs
+already standing on them stayed where they were when the other two arrived.
+
+## Watching a run back
+
+A shot run's tape is small enough to keep, so the Worker stores it on the row
+and `GET /api/replay?game=aim3d&board=…&rid=…` hands it back. Rows with a tape
+grow a **watch** button on the board, and the page plays the run against the
+same seed: the pool moves as it moved, and every shot lands where it landed.
+The camera between shots is walked from one recorded angle to the next, because
+the tape holds where each shot was aimed and not the path taken to get there.
+
+Tracking runs keep no tape: a minute of it is eighteen hundred samples, which
+has no business in a leaderboard row.
 
 ## Stack
 
