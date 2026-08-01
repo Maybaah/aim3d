@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>3D Aim Trainer: Gridshot With Your Own Sensitivity | Maybaah's Arcade</title>
+  <meta name="description" content="Free 3D aim trainer in the browser: a real first person camera, pointer lock, and your own sensitivity in cm/360, CS or Valorant numbers. Three spheres on the wall, thirty to clear, misses cost time. Every run is verified server-side. No ads, no sign-up." />
+  <meta name="author" content="Artem Kovtoniuk" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+  <link rel="canonical" href="https://maybaah.github.io/aim3d/" />
+  <meta name="theme-color" content="#0a0a0a" />
+
+  <!-- Open Graph -->
+  <meta property="og:site_name" content="maybaah.github.io" />
+  <meta property="og:title" content="3D Aim Trainer | Gridshot With Your Own Sensitivity | Maybaah's Arcade" />
+  <meta property="og:description" content="A real first person camera, your own cm/360, three spheres on the wall and thirty to clear. Free, no ads, verified global leaderboard." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://maybaah.github.io/aim3d/" />
+  <meta property="og:image" content="https://maybaah.github.io/assets/og.png" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="3D Aim Trainer | Gridshot With Your Own Sensitivity | Maybaah's Arcade" />
+  <meta name="twitter:description" content="A real first person camera, your own cm/360, three spheres on the wall and thirty to clear. Free, no ads, verified global leaderboard." />
+  <meta name="twitter:image" content="https://maybaah.github.io/assets/og.png" />
+
+  <!-- Icons -->
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="/assets/site.css" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Aim 3D | Maybaah's Arcade",
+    "url": "https://maybaah.github.io/aim3d/",
+    "description": "Free 3D browser aim trainer: a first person camera driven by pointer lock at your own sensitivity, three spheres on a wall and thirty to clear. Seeded runs are replay-verified from the angles you fired at.",
+    "genre": "Reflex game",
+    "gamePlatform": "Web browser",
+    "operatingSystem": "Any",
+    "applicationCategory": "Game",
+    "author": { "@type": "Person", "name": "Artem Kovtoniuk" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://maybaah.github.io/" },
+      { "@type": "ListItem", "position": 2, "name": "Arcade", "item": "https://maybaah.github.io/arcade/" },
+      { "@type": "ListItem", "position": 3, "name": "Aim 3D", "item": "https://maybaah.github.io/aim3d/" }
+    ]
+  }
+  </script>
+
+  <style>
+    .game-wrap { max-width: 780px; margin-inline: auto; padding-inline: 24px; }
+    .game-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 40px; }
+    .mode-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+    /* .pill lives in /assets/site.css, shared with the board widget below */
+
+    .hud {
+      display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 24px;
+      font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary);
+    }
+    .hud b { color: var(--text-primary); font-weight: 600; }
+    .hud .spacer { flex: 1; }
+
+    .stage { position: relative; margin-top: 16px; }
+    #screen {
+      display: block; width: 100%; height: auto;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      cursor: pointer;
+      touch-action: none;
+    }
+    .stage.locked #screen { cursor: none; border-color: var(--border-focus); }
+
+    #overlay {
+      position: absolute; inset: 0; z-index: 5;
+      display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+      background: rgba(10, 10, 10, 0.82); border-radius: var(--radius-lg);
+      backdrop-filter: blur(2px); text-align: center; padding: 24px;
+    }
+    #overlay.show { display: flex; }
+    /* the scrim is its own dark, so the type on it names its own colour rather
+       than following the site theme underneath */
+    #overlay h2 { font-family: var(--font-mono); font-size: 22px; color: #f0f0f0; }
+    #overlay p { font-family: var(--font-mono); font-size: 12px; color: #a8a8a8; max-width: 380px; line-height: 1.6; }
+
+    .settings {
+      display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;
+      margin-top: 18px; padding: 14px 16px;
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius);
+    }
+    .settings label {
+      display: block; font-family: var(--font-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 5px;
+    }
+    .settings select, .settings input {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text-primary); font-family: var(--font-mono); font-size: 13px; padding: 6px 10px;
+    }
+    .settings input { width: 96px; }
+    .settings .out {
+      flex: 1; min-width: 220px; text-align: right;
+      font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
+    }
+
+    .toolbar { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    .touch-note { display: none; margin-top: 14px; font-family: var(--font-mono); font-size: 12px; color: var(--warning); }
+    @media (hover: none) and (pointer: coarse) { .touch-note { display: block; } }
+  </style>
+</head>
+
+<body>
+<nav class="site-nav" aria-label="Main">
+  <div class="container">
+    <a class="wordmark" href="/">maybaah<span class="tld">.github.io</span></a>
+    <div class="nav-links">
+      <a href="/arcade/">← Arcade</a>
+      <a href="/leaderboard/">Leaderboard</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <div class="game-wrap">
+    <div class="game-head">
+      <div>
+        <p class="eyebrow">Cabinet 12</p>
+        <h1 style="font-size: 28px; margin-top: 6px;">Aim 3D</h1>
+      </div>
+      <div class="mode-pills" role="group" aria-label="Target size">
+        <button class="pill" data-mode="easy" aria-pressed="true">Easy</button>
+        <button class="pill" data-mode="medium" aria-pressed="false">Medium</button>
+        <button class="pill" data-mode="hard" aria-pressed="false">Hard</button>
+      </div>
+    </div>
+
+    <div class="hud">
+      <span>target <b id="h-round">0/30</b></span>
+      <span>time <b id="h-time">0.0s</b></span>
+      <span>misses <b id="h-misses">0</b></span>
+      <span>avg <b id="h-avg">0ms</b></span>
+      <span>best <b id="h-best">none</b></span>
+      <span class="spacer"></span>
+      <button class="btn btn-secondary btn-sm" id="btn-sound" aria-pressed="true" title="Blip on a hit, thud on a miss (M)">♪ sound</button>
+      <button class="btn btn-primary btn-sm" id="btn-new">New run</button>
+    </div>
+
+    <div class="stage" id="stage">
+      <canvas id="screen" width="960" height="540" aria-label="Aim trainer view"></canvas>
+      <div id="overlay" role="status" aria-live="polite">
+        <h2 id="ov-title">Aim 3D</h2>
+        <p id="ov-sub">Three spheres on the wall, thirty to clear. Click to take the mouse.</p>
+        <button class="btn btn-primary btn-sm" id="ov-start">Click to start</button>
+      </div>
+    </div>
+
+    <p class="touch-note">This one needs a mouse: a touch screen cannot drive a
+      pointer locked camera. The flat trainer at <a href="/aim/" style="text-decoration: underline;">/aim/</a> plays fine on a phone.</p>
+
+    <div class="settings" aria-label="Sensitivity">
+      <div>
+        <label for="set-preset">Sens as</label>
+        <select id="set-preset">
+          <option value="cm360">cm / 360</option>
+          <option value="cs">CS / Source</option>
+          <option value="valorant">Valorant</option>
+          <option value="deg">deg / count</option>
+        </select>
+      </div>
+      <div>
+        <label for="set-value" id="set-value-label">cm / 360</label>
+        <input id="set-value" type="number" min="0.001" max="1000" step="0.01" value="30" />
+      </div>
+      <div>
+        <label for="set-dpi">Mouse DPI</label>
+        <input id="set-dpi" type="number" min="100" max="32000" step="50" value="800" />
+      </div>
+      <div>
+        <label for="set-fov">FOV</label>
+        <input id="set-fov" type="number" min="60" max="130" step="1" value="103" />
+      </div>
+      <span class="out" id="set-out"></span>
+    </div>
+
+    <div id="submit-run" style="display: none; margin-top: 16px; gap: 8px; align-items: center; flex-wrap: wrap;">
+      <input id="run-name" maxlength="16" placeholder="your name" autocomplete="nickname" spellcheck="false"
+             style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px;
+                    color: var(--text-primary); font-family: var(--font-mono); font-size: 13px;
+                    padding: 7px 12px; width: 150px;" />
+      <button class="btn btn-primary btn-sm" id="btn-submit-run">Submit run</button>
+      <span class="mono" id="run-status" style="font-size: 11px; color: var(--text-secondary);"></span>
+    </div>
+
+    <div class="toolbar">
+      <a class="btn btn-secondary btn-sm" href="/aim/">Flat trainer</a>
+      <a class="btn btn-secondary btn-sm" href="/leaderboard/">Leaderboard</a>
+      <a class="btn btn-secondary btn-sm" href="/arcade/">Arcade</a>
+    </div>
+
+    <section class="board-embed" id="board-embed" aria-label="Global leaderboard"></section>
+
+    <p style="margin-top: 24px; font-size: 13px; color: var(--text-muted); line-height: 1.7; max-width: 64ch;">
+      Click the view to hand the mouse over and the camera starts turning with
+      it: no cursor, just yaw and pitch, the way a shooter aims. Three spheres
+      sit on a wall ten metres out and a new one appears every time you break
+      one, thirty to clear. A miss costs a quarter second rather than the run.
+      Escape gives the mouse back and ends the run where it stands.
+    </p>
+
+    <p style="margin-top: 16px; font-size: 13px; color: var(--text-muted); line-height: 1.7; max-width: 64ch;">
+      Put your own sensitivity in and it plays like your game: cm/360 with your
+      DPI, or the raw number from CS or Valorant. Where the browser offers raw
+      mouse input it is used, so pointer acceleration stays out of the way, but
+      that is a Chromium feature today and elsewhere the operating system still
+      has a hand on the numbers. Sensitivity is never submitted. A run is the
+      angles you fired at, and the seed the spheres came from, so the
+      <a href="/leaderboard/" style="text-decoration: underline;">global leaderboard</a>
+      is decided by a Worker that fires every shot again itself.
+    </p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <span>© 2026 Artem Kovtoniuk</span>
+    <div class="links">
+      <a href="/arcade/">arcade</a>
+      <a href="/leaderboard/">leaderboard</a>
+      <a href="https://github.com/Maybaah/aim3d">source</a>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/arcade.js"></script>
+<script src="game.js"></script>
+<script>
+  (function () {
+    /* The page already has size pills driving the game, so the widget hides its
+       own copy and follows those instead. */
+    function currentMode() {
+      var on = document.querySelector('[data-mode][aria-pressed="true"]');
+      return on ? on.dataset.mode : "easy";
+    }
+    var board = Arcade.mountBoard(document.getElementById("board-embed"), {
+      game: "aim3d", title: "Global board", limit: 10, selfLink: false,
+      hiddenAxes: ["mode"], state: { mode: currentMode() }
+    });
+    document.querySelectorAll("[data-mode]").forEach(function (p) {
+      p.addEventListener("click", function () { board.setState({ mode: p.dataset.mode }); });
+    });
+  })();
+</script>
+</body>
+</html>
