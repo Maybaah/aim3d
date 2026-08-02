@@ -64,24 +64,12 @@
   </script>
 
   <style>
-    .game-wrap { max-width: 780px; margin-inline: auto; padding-inline: 24px; }
-    .game-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 40px; }
-    .mode-pills { display: flex; gap: 6px; flex-wrap: wrap; }
-    /* .pill lives in /assets/site.css, shared with the board widget below */
+    .game-wrap { --wrap: 780px; }
 
-    .hud {
-      display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 24px;
-      font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary);
-    }
     /* Every label and every number gets a slot as wide as the longest thing it
        can hold, so neither a ticking clock nor a change of scenario shuffles
        the row sideways. */
     .hud i { display: inline-block; font-style: normal; }
-    .hud b {
-      display: inline-block; text-align: right;
-      color: var(--text-primary); font-weight: 600;
-      font-variant-numeric: tabular-nums;
-    }
     #hud-a-label { min-width: 9ch; }
     #hud-b-label, #hud-d-label, #hud-e-label { min-width: 4ch; }
     #hud-c-label { min-width: 6ch; }
@@ -91,7 +79,6 @@
     /* the two toggles change their own labels, so they keep a slot too */
     #btn-sound { min-width: 92px; }
     #btn-full { min-width: 118px; }
-    .hud .spacer { flex: 1; }
 
     .stage { position: relative; margin-top: 16px; }
 
@@ -102,8 +89,10 @@
       display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between;
       pointer-events: none;
     }
-    .stage-bar .pill-row {
-      display: flex; gap: 6px; pointer-events: auto;
+    /* the same pill group every cabinet has, on a scrim because it sits over
+       the view rather than over the page */
+    .stage-bar .mode-pills {
+      pointer-events: auto;
       background: rgba(10, 10, 10, 0.55); padding: 4px; border-radius: 10px;
       backdrop-filter: blur(2px);
     }
@@ -161,7 +150,6 @@
       font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
     }
 
-    .toolbar { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
     .touch-note { display: none; margin-top: 14px; font-family: var(--font-mono); font-size: 12px; color: var(--warning); }
     @media (hover: none) and (pointer: coarse) { .touch-note { display: block; } }
   </style>
@@ -183,7 +171,7 @@
     <div class="game-head">
       <div>
         <p class="eyebrow">Cabinet 12</p>
-        <h1 style="font-size: 28px; margin-top: 6px;">Aim 3D</h1>
+        <h1>Aim 3D</h1>
       </div>
       <p class="mono" style="font-size: 11px; color: var(--text-muted);">
         1 2 3 difficulty · 4 5 6 scenario · F full screen · M sound
@@ -205,12 +193,12 @@
     <div class="stage" id="stage">
       <canvas id="screen" width="960" height="540" aria-label="Aim trainer view"></canvas>
       <div class="stage-bar" id="stage-bar">
-        <div class="pill-row" role="group" aria-label="Scenario">
+        <div class="mode-pills" role="group" aria-label="Scenario">
           <button class="pill" data-scenario="grid" aria-pressed="true">30 kills</button>
           <button class="pill" data-scenario="sprint" aria-pressed="false">60 seconds</button>
           <button class="pill" data-scenario="track" aria-pressed="false">Tracking</button>
         </div>
-        <div class="pill-row" role="group" aria-label="Difficulty">
+        <div class="mode-pills" role="group" aria-label="Difficulty">
           <button class="pill" data-mode="easy" aria-pressed="true">Easy</button>
           <button class="pill" data-mode="medium" aria-pressed="false">Medium</button>
           <button class="pill" data-mode="hard" aria-pressed="false">Hard</button>
@@ -251,19 +239,16 @@
       <span class="out" id="set-out"></span>
     </div>
 
-    <div id="submit-run" style="display: none; margin-top: 16px; gap: 8px; align-items: center; flex-wrap: wrap;">
-      <input id="run-name" maxlength="16" placeholder="your name" autocomplete="nickname" spellcheck="false"
-             style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px;
-                    color: var(--text-primary); font-family: var(--font-mono); font-size: 13px;
-                    padding: 7px 12px; width: 150px;" />
+    <div class="submit-run" id="submit-run">
+      <input id="run-name" maxlength="16" placeholder="your name" autocomplete="nickname" spellcheck="false" />
       <button class="btn btn-primary btn-sm" id="btn-submit-run">Submit run</button>
-      <span class="mono" id="run-status" style="font-size: 11px; color: var(--text-secondary);"></span>
+      <span class="run-status" id="run-status"></span>
     </div>
 
     <div class="toolbar">
       <a class="btn btn-secondary btn-sm" href="/aim/">Flat trainer</a>
-      <a class="btn btn-secondary btn-sm" href="/leaderboard/">Leaderboard</a>
       <a class="btn btn-secondary btn-sm" href="/arcade/">Arcade</a>
+      <a class="btn btn-secondary btn-sm" href="/leaderboard/">Leaderboard</a>
     </div>
 
     <section class="board-embed" id="board-embed" aria-label="Global leaderboard"></section>
@@ -303,6 +288,7 @@
   <div class="container">
     <span>© 2026 Artem Kovtoniuk</span>
     <div class="links">
+      <a href="/">home</a>
       <a href="/arcade/">arcade</a>
       <a href="/leaderboard/">leaderboard</a>
       <a href="https://github.com/Maybaah/aim3d">source</a>
