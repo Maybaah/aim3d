@@ -9,7 +9,7 @@
   <meta name="author" content="Artem Kovtoniuk" />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
   <link rel="canonical" href="https://maybaah.github.io/aim3d/" />
-  <meta name="theme-color" content="#0a0a0a" />
+  <meta name="theme-color" content="#09090b" />
 
   <!-- Open Graph -->
   <meta property="og:site_name" content="maybaah.github.io" />
@@ -32,7 +32,7 @@
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..700&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="/assets/site.css" />
 
@@ -93,7 +93,7 @@
        the view rather than over the page */
     .stage-bar .mode-pills {
       pointer-events: auto;
-      background: rgba(10, 10, 10, 0.55); padding: 4px; border-radius: 10px;
+      background: rgba(9, 9, 11, 0.55); padding: 4px; border-radius: var(--radius);
       backdrop-filter: blur(2px);
     }
     .stage.locked .stage-bar { display: none; }
@@ -119,18 +119,6 @@
     }
     .stage:fullscreen #overlay { border-radius: 0; }
 
-    #overlay {
-      position: absolute; inset: 0; z-index: 5;
-      display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
-      background: rgba(10, 10, 10, 0.82); border-radius: var(--radius-lg);
-      backdrop-filter: blur(2px); text-align: center; padding: 24px;
-    }
-    #overlay.show { display: flex; }
-    /* the scrim is its own dark, so the type on it names its own colour rather
-       than following the site theme underneath */
-    #overlay h2 { font-family: var(--font-mono); font-size: 22px; color: #f0f0f0; }
-    #overlay p { font-family: var(--font-mono); font-size: 12px; color: #a8a8a8; max-width: 380px; line-height: 1.6; }
-
     .settings {
       display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;
       margin-top: 18px; padding: 14px 16px;
@@ -138,10 +126,10 @@
     }
     .settings label {
       display: block; font-family: var(--font-mono); font-size: 10px;
-      text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 5px;
+      text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-secondary); margin-bottom: 5px;
     }
     .settings select, .settings input {
-      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md);
       color: var(--text-primary); font-family: var(--font-mono); font-size: 13px; padding: 6px 10px;
     }
     .settings input { width: 96px; }
@@ -173,7 +161,7 @@
         <p class="eyebrow">Cabinet 12</p>
         <h1>Aim 3D</h1>
       </div>
-      <p class="mono" style="font-size: 11px; color: var(--text-muted);">
+      <p class="mono" style="font-size: 11px; color: var(--text-secondary);">
         1 2 3 difficulty · 4 5 6 scenario · F full screen · M sound
       </p>
     </div>
@@ -205,9 +193,11 @@
         </div>
       </div>
       <div id="overlay" role="status" aria-live="polite">
-        <h2 id="ov-title">Aim 3D</h2>
-        <p id="ov-sub">Three spheres on the wall, thirty to clear. Click to take the mouse.</p>
-        <button class="btn btn-primary btn-sm" id="ov-start">Click to start</button>
+        <div class="overlay-panel">
+          <h2 id="ov-title">Aim 3D</h2>
+          <p id="ov-sub">Three spheres on the wall, thirty to clear. Click to take the mouse.</p>
+          <button class="btn btn-primary btn-sm" id="ov-start">Click to start</button>
+        </div>
       </div>
     </div>
 
@@ -253,7 +243,7 @@
 
     <section class="board-embed" id="board-embed" aria-label="Global leaderboard"></section>
 
-    <p style="margin-top: 24px; font-size: 13px; color: var(--text-muted); line-height: 1.7; max-width: 64ch;">
+    <p style="margin-top: 24px; font-size: 13px; color: var(--text-secondary); line-height: 1.7; max-width: 64ch;">
       Click the view to hand the mouse over and the camera starts turning with
       it: no cursor, just yaw and pitch, the way a shooter aims. Three spheres
       sit on a wall ten metres out and a new one appears every time you break
@@ -267,7 +257,7 @@
       window changes shape.
     </p>
 
-    <p style="margin-top: 16px; font-size: 13px; color: var(--text-muted); line-height: 1.7; max-width: 64ch;">
+    <p style="margin-top: 16px; font-size: 13px; color: var(--text-secondary); line-height: 1.7; max-width: 64ch;">
       Put your own sensitivity in and it plays like your game: cm/360 with your
       DPI, or the raw number from CS or Valorant. Where the browser offers raw
       mouse input it is used, so pointer acceleration stays out of the way, but
