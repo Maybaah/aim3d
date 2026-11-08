@@ -449,7 +449,7 @@
   function setMuted(next) {
     muted = next;
     btnSound.setAttribute("aria-pressed", String(!muted));
-    btnSound.textContent = muted ? "♪ muted" : "♪ sound";
+    btnSound.querySelector("span").textContent = muted ? "Muted" : "Sound";
   }
 
   /* ── camera and drawing ── */
@@ -1046,7 +1046,7 @@
   function paintFull() {
     const on = !!document.fullscreenElement;
     btnFull.setAttribute("aria-pressed", String(on));
-    btnFull.textContent = on ? "⛶ windowed" : "⛶ full screen";
+    btnFull.querySelector("span").textContent = on ? "Windowed" : "Full screen";
   }
 
   function paintPills() {

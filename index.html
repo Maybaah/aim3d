@@ -124,6 +124,9 @@
       margin-top: 18px; padding: 14px 16px;
       background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius);
     }
+    .keys { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; color: var(--text-secondary); }
+    .keys span { display: inline-flex; align-items: center; gap: 4px; }
+    .keys .kbd:last-of-type { margin-right: 4px; }
     .settings label {
       display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;
     }
@@ -160,8 +163,11 @@
         <p class="eyebrow">Cabinet 12</p>
         <h1>Aim 3D</h1>
       </div>
-      <p class="mono" style="font-size: 11px; color: var(--text-secondary);">
-        1 2 3 difficulty · 4 5 6 scenario · F full screen · M sound
+      <p class="keys">
+        <span><kbd class="kbd">1</kbd><kbd class="kbd">2</kbd><kbd class="kbd">3</kbd> Difficulty</span>
+        <span><kbd class="kbd">4</kbd><kbd class="kbd">5</kbd><kbd class="kbd">6</kbd> Scenario</span>
+        <span><kbd class="kbd">F</kbd> Full screen</span>
+        <span><kbd class="kbd">M</kbd> Sound</span>
       </p>
     </div>
 
@@ -172,8 +178,8 @@
       <span><i id="hud-d-label">avg</i> <b id="hud-d">0ms</b></span>
       <span><i id="hud-e-label">best</i> <b id="hud-e">none</b></span>
       <span class="spacer"></span>
-      <button class="btn btn-secondary btn-sm" id="btn-sound" aria-pressed="true" title="Blip on a hit, thud on a miss (M)">♪ sound</button>
-      <button class="btn btn-secondary btn-sm" id="btn-full" aria-pressed="false" title="Fill the screen (F)">⛶ full screen</button>
+      <button class="btn btn-secondary btn-sm" id="btn-sound" aria-pressed="true" title="Blip on a hit, thud on a miss (M)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg><span>Sound</span></button>
+      <button class="btn btn-secondary btn-sm" id="btn-full" aria-pressed="false" title="Fill the screen (F)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span>Full screen</span></button>
       <button class="btn btn-primary btn-sm" id="btn-new">New run</button>
     </div>
 
